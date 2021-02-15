@@ -136,6 +136,7 @@ static bool redis_arg1(struct msg *r) {
     case MSG_REQ_REDIS_CONFIG:
     case MSG_REQ_REDIS_SCRIPT_LOAD:
     case MSG_REQ_REDIS_SCRIPT_EXISTS:
+    case MSG_REQ_REDIS_SELECT:
 
       return true;
 
@@ -1199,6 +1200,12 @@ void redis_parse_req(struct msg *r, struct context *ctx) {
               r->is_read = 0;
               break;
             }
+            if (str6icmp(m, 's', 'e', 'l', 'e', 'c', 't')) {
+              r->type = MSG_REQ_REDIS_SELECT;
+              r->msg_routing = ROUTING_LOCAL_NODE_ONLY;
+              r->is_read = 0;
+              break;
+            }
             break;
 
           case 7:
@@ -1828,6 +1835,11 @@ void redis_parse_req(struct msg *r, struct context *ctx) {
 
         if (r->type == MSG_REQ_REDIS_CONFIG && !str3icmp(m, 'g', 'e', 't')) {
           log_error("Redis CONFIG command not supported '%.*s'", p - m, m);
+          goto error;
+        }
+
+        if (r->type == MSG_REQ_REDIS_SELECT && dn_atoi(p, r->rlen)) {
+          log_error("Redis SELECT command not supported for db '%.*s'", r->rlen, p);
           goto error;
         }
 
