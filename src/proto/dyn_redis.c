@@ -136,7 +136,6 @@ static bool redis_arg1(struct msg *r) {
     case MSG_REQ_REDIS_CONFIG:
     case MSG_REQ_REDIS_SCRIPT_LOAD:
     case MSG_REQ_REDIS_SCRIPT_EXISTS:
-    case MSG_REQ_REDIS_SELECT:
 
       return true;
 
@@ -150,6 +149,7 @@ static bool redis_arg1(struct msg *r) {
 static bool redis_arg_upto1(struct msg *r) {
   switch (r->type) {
     case MSG_REQ_REDIS_INFO:
+    case MSG_REQ_REDIS_SELECT:
       return true;
     default:
       break;
@@ -1838,10 +1838,10 @@ void redis_parse_req(struct msg *r, struct context *ctx) {
           goto error;
         }
 
-        /* if (r->type == MSG_REQ_REDIS_SELECT && dn_atoi(p, r->rlen)) { */
-        /*   log_error("Redis SELECT command not supported for db '%.*s'", r->rlen, p); */
-        /*   goto error; */
-        /* } */
+        if (r->type == MSG_REQ_REDIS_SELECT && dn_atoi(p, r->rlen)) {
+          log_error("Redis SELECT command not supported for db '%.*s'", r->rlen, p);
+          goto error;
+        }
 
         m = p + r->rlen;
 
