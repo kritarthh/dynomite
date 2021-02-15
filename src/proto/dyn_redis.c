@@ -1838,10 +1838,10 @@ void redis_parse_req(struct msg *r, struct context *ctx) {
           goto error;
         }
 
-        if (r->type == MSG_REQ_REDIS_SELECT && dn_atoi(p, r->rlen)) {
-          log_error("Redis SELECT command not supported for db '%.*s'", r->rlen, p);
-          goto error;
-        }
+        /* if (r->type == MSG_REQ_REDIS_SELECT && dn_atoi(p, r->rlen)) { */
+        /*   log_error("Redis SELECT command not supported for db '%.*s'", r->rlen, p); */
+        /*   goto error; */
+        /* } */
 
         m = p + r->rlen;
 
