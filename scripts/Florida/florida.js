@@ -7,7 +7,7 @@ var port = process.env.DYNOMITE_FLORIDA_PORT ?
     process.env.DYNOMITE_FLORIDA_PORT : 8080;
 
 var apiUrl = process.env.DYNOMITE_FLORIDA_REQUEST ?
-    process.env.DYNOMITE_FLORIDA_REQUEST : '/REST/v1/admin/get_seeds';
+    process.env.DYNOMITE_FLORIDA_REQUEST : '/dynomite-manager/REST/v1/admin/get_seeds';
 
 // Parse command line options
 var seedsFilePath = process.argv[2] && process.argv[2].length > 0 ?
