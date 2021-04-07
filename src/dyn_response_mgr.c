@@ -225,11 +225,12 @@ bool perform_repairs_if_necessary(struct context *ctx, struct response_mgr *rspm
       // headers (as mbufs to the src req), that will bork the request sent to
       // secondary racks
       struct mbuf *orig_mbuf = STAILQ_FIRST(&repair_msg->mhdr);
+      uint8_t rrf = 0;
 
       // Send the repair 'msg' to the peer node.
       status = req_forward_to_peer(ctx, c_conn, repair_msg, target_peer,
           key_pos->start, keylen, orig_mbuf, true /*force copy? */,
-          false /* force swallow? */, &dyn_error_code);
+          false /* force swallow? */, &dyn_error_code, &rrf);
 
       IGNORE_RET_VAL(status);
     }

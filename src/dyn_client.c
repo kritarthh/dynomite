@@ -625,7 +625,7 @@ static rstatus_t admin_req_forward_local_datastore(struct context *ctx,
 rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
     struct msg *req, struct node *peer, uint8_t* key, uint32_t keylen,
     struct mbuf *orig_mbuf, bool force_copy, bool force_swallow,
-    dyn_error_t *dyn_error_code) {
+    dyn_error_t *dyn_error_code, uint8_t* remote_rack_forward) {
 
   rstatus_t status;
 
@@ -670,13 +670,22 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
     // Swallow responses from remote racks or DCs.
     rack_msg->swallow = true;
   }
+  // do not swallow response if the remote rack in same dc due to local rack peer failure
+  if (*remote_rack_forward) {
+    rack_msg->swallow = false;
+  }
 
   // Get a connection to the node.
   struct conn *p_conn = dnode_peer_get_conn(ctx, peer, c_conn->sd);
   if (p_conn == NULL) {
     status = DN_ERROR;
     *dyn_error_code = PEER_HOST_NOT_CONNECTED;
-    goto error;
+    // try 1 more peer in the same dc, i.e., a remote rack same dc peer
+    // therefore, don't respond yet
+    if (same_rack && *remote_rack_forward)
+      goto retry;
+    else
+      goto error;
   }
 
   // Finally, forward the message to a peer DNODE.
@@ -684,21 +693,40 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
       ctx, c_conn, p_conn, rack_msg, key, keylen, dyn_error_code);
   if (status != DN_OK) {
     log_error("Failure in forwarding a request to a dnode");
-    goto error;
+    // try 1 more peer in the same dc, i.e., a remote rack same dc peer
+    // therefore, don't respond yet
+    if (same_rack && *remote_rack_forward) {
+      *dyn_error_code = PEER_HOST_NOT_CONNECTED;
+      goto retry;
+    } else
+      goto error;
   }
 
+  if (*remote_rack_forward) {
+    *remote_rack_forward -= 1;
+  }
   return status;
+
+ retry:
+  // this makes sure that the error is swallowed
+  same_dc = false;
+
 
  error:
   // Forward errors only if we failed to talk to the same DC. We currently ignore cross-DC
   // errors.
   if (same_dc) {
     // We forward the error if the target was in the same rack, or if it was in a remote
-    // rack and we're expecting a quorum response.
-    if ((!same_rack && req->consistency != DC_ONE) || same_rack) {
+    // rack and we're expecting a quorum response, or if it was in a remote rack due to local peer failure.
+    if ((!same_rack && req->consistency != DC_ONE) ||
+        same_rack ||
+        (*remote_rack_forward)) {
       req_forward_error(ctx, c_conn,
           (rack_msg ? rack_msg : req),
           status, *dyn_error_code);
+      if (*remote_rack_forward) {
+        *remote_rack_forward -= 1;
+      }
     } else if (!same_rack && req->consistency == DC_ONE) {
       // We won't receive a response from one host, so account for that
       // (even though it's effectively a no-op as we wait only for one response in
@@ -721,6 +749,7 @@ void req_forward_all_racks_for_dc(struct context *ctx, struct conn *c_conn,
                                  struct datacenter *dc) {
   uint8_t rack_cnt = (uint8_t)array_n(&dc->racks);
   uint8_t rack_index;
+  uint8_t rrf = rack_cnt > 1 ? 1 : 0;
 
   if (req->rspmgrs_inited == false) {
     if (req->consistency == DC_EACH_SAFE_QUORUM) {
@@ -742,7 +771,7 @@ void req_forward_all_racks_for_dc(struct context *ctx, struct conn *c_conn,
     // Forward the message to the peer.
     rstatus_t status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
         orig_mbuf, false /* force_copy? */, false /* force swallow? */,
-        &dyn_error_code);
+        &dyn_error_code, &rrf);
 
     // We ignore the return value since the callee will take care of forwarding errors.
     IGNORE_RET_VAL(status);
@@ -796,6 +825,7 @@ static rstatus_t req_forward_all_dcs_all_racks_all_nodes(struct context *ctx,
   rstatus_t status = DN_OK;
   struct server_pool *pool = c_conn->owner;
   uint32_t peer_cnt = array_n(&pool->peers);
+  uint8_t rrf = 0;
 
   req->rsp_handler = msg_get_rsp_handler(ctx, req);
 
@@ -807,7 +837,7 @@ static rstatus_t req_forward_all_dcs_all_racks_all_nodes(struct context *ctx,
     // Force a swallow for all the peers since we don't care about matching the return
     // values for each one.
     status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
-        orig_mbuf, true /* force_copy */, true /* force swallow */, dyn_error_code);
+        orig_mbuf, true /* force_copy */, true /* force swallow */, dyn_error_code, &rrf);
     // We ignore the return value since the callee will take care of forwarding errors.
     IGNORE_RET_VAL(status);
   }
@@ -845,10 +875,11 @@ static void req_forward_remote_dc(struct context *ctx, struct conn *c_conn,
                                              keylen, req->msg_routing);
 
   dyn_error_t dyn_error_code = DYNOMITE_OK;
+  uint8_t rrf = 0;
   // Forward the message to the peer.
   rstatus_t status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
       orig_mbuf, true /* force_copy */, false /* force swallow? */,
-      &dyn_error_code);
+      &dyn_error_code, &rrf);
 
   // If we succeeded in sending it to the preselected rack in the preferred remote DC,
   // then we return, else we go ahead to try other racks in the remote DC.
@@ -868,7 +899,7 @@ static void req_forward_remote_dc(struct context *ctx, struct conn *c_conn,
 
     status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
         orig_mbuf, true /* force_copy */, false /* force swallow */,
-        &dyn_error_code);
+        &dyn_error_code, &rrf);
     if (status == DN_OK) {
       stats_pool_incr(ctx, remote_peer_failover_requests);
       return;
@@ -890,15 +921,43 @@ static void req_forward_local_dc(struct context *ctx, struct conn *c_conn,
     // send request to only local token owner
     struct rack *rack =
         server_get_rack_by_dc_rack(pool, &pool->rack, &pool->dc);
+    const uint32_t rack_cnt = array_n(&dc->racks);
+    uint8_t rrf = rack_cnt > 1 ? 1 : 0;
     // Pick the token owner peer from the selected rack.
     struct node *peer = dnode_peer_pool_server(ctx, c_conn->owner, rack, key,
                                                keylen, req->msg_routing);
 
     dyn_error_t dyn_error_code = 0;
     // Forward the message to the peer.
+    // TODO: check the peer before forwarding, else send to some other rack's peer
     rstatus_t status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
         orig_mbuf, false /* force_copy? */, false /* force swallow? */,
-        &dyn_error_code);
+        &dyn_error_code, &rrf);
+    if (dyn_error_code != PEER_HOST_NOT_CONNECTED) {
+      IGNORE_RET_VAL(status);
+    }
+
+    // Start over with another rack.
+    uint8_t rack_index;
+    struct rack *r;
+    for (rack_index = 0; rack_index < rack_cnt; rack_index++) {
+      r = array_get(&dc->racks, rack_index);
+      peer = dnode_peer_pool_server(ctx, c_conn->owner, r, key,
+                                    keylen, req->msg_routing);
+
+      if (r == rack) continue;
+      log_info("%s FAILOVER forwarding msg %s to local dc remote rack '%.*s'",
+               print_obj(c_conn), print_obj(req), r->name->len,
+               r->name->data);
+
+      status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
+                                   orig_mbuf, false /* force_copy */, false /* force swallow */,
+                                   &dyn_error_code, &rrf /* force forward error */);
+      if (status == DN_OK) {
+        stats_pool_incr(ctx, remote_peer_failover_requests);
+        return;
+      }
+    }
     IGNORE_RET_VAL(status);
   }
 }

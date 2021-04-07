@@ -30,6 +30,6 @@ void init_client_conn(struct conn *conn);
 rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
      struct msg *req, struct node *peer, uint8_t* key, uint32_t keylen,
      struct mbuf *orig_mbuf, bool force_copy, bool force_swallow,
-     dyn_error_t *dyn_error_code);
+     dyn_error_t *dyn_error_code, uint8_t* remote_rack_forward);
 
 #endif
