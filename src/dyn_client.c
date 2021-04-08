@@ -737,7 +737,7 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
     }
   }
   // Release the copy if we made one above..
-  if (rack_msg != NULL && (force_copy || !same_rack) && !*remote_rack_forward)) {
+  if (rack_msg != NULL && (force_copy || !same_rack) && !*remote_rack_forward) {
     req_put(rack_msg);
   }
   return status;
