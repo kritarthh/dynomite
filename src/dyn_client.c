@@ -747,6 +747,7 @@ void req_forward_all_racks_for_dc(struct context *ctx, struct conn *c_conn,
                                  struct msg *req, struct mbuf *orig_mbuf,
                                  uint8_t *key, uint32_t keylen,
                                  struct datacenter *dc) {
+  struct server_pool *pool = c_conn->owner;
   uint8_t rack_cnt = (uint8_t)array_n(&dc->racks);
   uint8_t rack_index;
   uint8_t rrf = rack_cnt > 1 ? 1 : 0;
@@ -761,19 +762,34 @@ void req_forward_all_racks_for_dc(struct context *ctx, struct conn *c_conn,
   log_info("%s %s same DC racks:%d expect replies %d", print_obj(c_conn),
            print_obj(req), rack_cnt, req->rspmgr.max_responses);
 
-  for (rack_index = 0; rack_index < rack_cnt; ++rack_index) {
-    struct rack *rack = array_get(&dc->racks, rack_index);
-    // Pick the token owner peer from the selected rack.
-    struct node *peer = dnode_peer_pool_server(ctx, c_conn->owner, rack, key,
-                                               keylen, req->msg_routing);
-    dyn_error_t dyn_error_code = DYNOMITE_OK;
+  // send request to only local token owner
+  struct rack *rack =
+    server_get_rack_by_dc_rack(pool, &pool->rack, &pool->dc);
+  // Pick the token owner peer from the selected rack.
+  struct node *peer = dnode_peer_pool_server(ctx, c_conn->owner, rack, key,
+                                             keylen, req->msg_routing);
 
-    // Forward the message to the peer.
-    rstatus_t status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
-        orig_mbuf, false /* force_copy? */, false /* force swallow? */,
-        &dyn_error_code, &rrf);
+  dyn_error_t dyn_error_code = DYNOMITE_OK;
+  // Forward the message to the peer.
+  // TODO: check the peer before forwarding, else send to some other rack's peer
+  rstatus_t status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
+                                         orig_mbuf, false /* force_copy? */, false /* force swallow? */,
+                                         &dyn_error_code, &rrf);
+  IGNORE_RET_VAL(status);
 
-    // We ignore the return value since the callee will take care of forwarding errors.
+  // Start with other racks.
+  struct rack *r;
+  for (rack_index = 0; rack_index < rack_cnt; rack_index++) {
+    r = array_get(&dc->racks, rack_index);
+    peer = dnode_peer_pool_server(ctx, c_conn->owner, r, key,
+                                  keylen, req->msg_routing);
+
+    if (r == rack) continue;
+
+    dyn_error_code = DYNOMITE_OK;
+    status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
+                                 orig_mbuf, false /* force_copy */, false /* force swallow */,
+                                 &dyn_error_code, &rrf /* force forward error */);
     IGNORE_RET_VAL(status);
   }
 }
