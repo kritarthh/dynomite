@@ -494,8 +494,16 @@ static void core_timeout(struct context *ctx) {
     if (req->tries < 2) {
       req->tries++;
       log_warn("Retring request %d", req->tries);
-      conn_enqueue_inq(ctx, conn, req);
-      return;
+      /* rstatus_t status = conn_event_del_out(conn); */
+      /* status = conn_event_add_out(conn); */
+      /* /\* if (status != DN_OK) { *\/ */
+      /* /\*   log_error("Event addition failed"); *\/ */
+      /* /\*   conn->err = ETIMEDOUT; *\/ */
+      /* /\*   core_close(ctx, conn); *\/ */
+      /* /\*   return; *\/ */
+      /* /\* } *\/ */
+      /* conn_enqueue_inq(ctx, conn, req); */
+      /* return; */
     }
 
     conn->err = ETIMEDOUT;
