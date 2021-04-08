@@ -643,6 +643,9 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
       log_error("Failed to forward request to local datastore.");
       goto error;
     }
+    if (*remote_rack_forward) {
+      *remote_rack_forward -= 1;
+    }
     return status;
   }
 
@@ -671,7 +674,7 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
     rack_msg->swallow = true;
   }
   // do not swallow response if the remote rack in same dc due to local rack peer failure
-  if (*remote_rack_forward && !force_swallow) {
+  if (!same_rack && *remote_rack_forward && !force_swallow) {
     rack_msg->swallow = false;
   }
 
@@ -737,7 +740,7 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
     }
   }
   // Release the copy if we made one above..
-  if (rack_msg != NULL && (force_copy || !same_rack) && !*remote_rack_forward) {
+  if (rack_msg != NULL && (force_copy || !same_rack)) {
     req_put(rack_msg);
   }
   return status;
@@ -781,10 +784,9 @@ void req_forward_all_racks_for_dc(struct context *ctx, struct conn *c_conn,
   struct rack *r;
   for (rack_index = 0; rack_index < rack_cnt; rack_index++) {
     r = array_get(&dc->racks, rack_index);
+    if (r == rack) continue;
     peer = dnode_peer_pool_server(ctx, c_conn->owner, r, key,
                                   keylen, req->msg_routing);
-
-    if (r == rack) continue;
 
     dyn_error_code = DYNOMITE_OK;
     status = req_forward_to_peer(ctx, c_conn, req, peer, key, keylen,
@@ -959,10 +961,10 @@ static void req_forward_local_dc(struct context *ctx, struct conn *c_conn,
     struct rack *r;
     for (rack_index = 0; rack_index < rack_cnt; rack_index++) {
       r = array_get(&dc->racks, rack_index);
+      if (r == rack) continue;
       peer = dnode_peer_pool_server(ctx, c_conn->owner, r, key,
                                     keylen, req->msg_routing);
 
-      if (r == rack) continue;
       log_warn("%s FAILOVER forwarding msg %s to local dc remote rack '%.*s'",
                print_obj(c_conn), print_obj(req), r->name->len,
                r->name->data);
