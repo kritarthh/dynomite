@@ -671,7 +671,7 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
     rack_msg->swallow = true;
   }
   // do not swallow response if the remote rack in same dc due to local rack peer failure
-  if (*remote_rack_forward) {
+  if (*remote_rack_forward && !force_swallow) {
     rack_msg->swallow = false;
   }
 
@@ -737,7 +737,7 @@ rstatus_t req_forward_to_peer(struct context *ctx, struct conn *c_conn,
     }
   }
   // Release the copy if we made one above..
-  if (rack_msg != NULL && (force_copy || !same_rack)) {
+  if (rack_msg != NULL && (force_copy || !same_rack) && !*remote_rack_forward)) {
     req_put(rack_msg);
   }
   return status;
@@ -935,6 +935,7 @@ static void req_forward_local_dc(struct context *ctx, struct conn *c_conn,
         &dyn_error_code, &rrf);
     if (dyn_error_code != PEER_HOST_NOT_CONNECTED) {
       IGNORE_RET_VAL(status);
+      return;
     }
 
     // Start over with another rack.
@@ -946,7 +947,7 @@ static void req_forward_local_dc(struct context *ctx, struct conn *c_conn,
                                     keylen, req->msg_routing);
 
       if (r == rack) continue;
-      log_info("%s FAILOVER forwarding msg %s to local dc remote rack '%.*s'",
+      log_warn("%s FAILOVER forwarding msg %s to local dc remote rack '%.*s'",
                print_obj(c_conn), print_obj(req), r->name->len,
                r->name->data);
 

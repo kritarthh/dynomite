@@ -420,6 +420,7 @@ done:
   msg->rewrite_with_ts_possible = true;
   msg->additional_each_rspmgrs = NULL;
   msg->rspmgrs_inited = false;
+  msg->tries = 0;
 
   // Init the write_with_ts struct:
   struct write_with_ts *minfo = &msg->msg_info;
@@ -510,6 +511,7 @@ rstatus_t msg_clone(struct msg *src, struct mbuf *mbuf_start,
   target->is_read = src->is_read;
   target->consistency = src->consistency;
   target->msg_routing = src->msg_routing;
+  target->tries = src->tries;
 
   struct mbuf *mbuf, *nbuf;
   bool started = false;

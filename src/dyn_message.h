@@ -536,6 +536,7 @@ struct msg {
   msg_response_handler_t rsp_handler;
   consistency_t consistency;
   msgid_t parent_id; /* parent message id */
+  uint8_t tries; /* try attempts */
 
   // Primary response_mgr for this instance's DC.
   struct response_mgr rspmgr;

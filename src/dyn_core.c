@@ -491,6 +491,13 @@ static void core_timeout(struct context *ctx) {
       }
     }
 
+    if (req->tries < 2) {
+      req->tries++;
+      log_warn("Retring request %d", req->tries);
+      conn_enqueue_inq(ctx, conn, req);
+      return;
+    }
+
     conn->err = ETIMEDOUT;
 
     core_close(ctx, conn);
